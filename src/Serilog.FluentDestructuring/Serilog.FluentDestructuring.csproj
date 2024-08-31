@@ -1,0 +1,36 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net8.0</TargetFramework>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+
+        <PackageId>Serilog.FluentDestructuring</PackageId>
+        <Title>Serilog.FluentDestructuring</Title>
+        <Authors>Vazovsk1y</Authors>
+        <Description>Use Fluent API to control how complex types are logged to Serilog.</Description>
+        <RepositoryUrl>https://github.com/Vazovsk1y/Serilog.FluentDestructuring</RepositoryUrl>
+        <RepositoryType>git</RepositoryType>
+        <IncludeSymbols>true</IncludeSymbols>
+        <PackageReadmeFile>README.md</PackageReadmeFile>
+
+        <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+        <GenerateDocumentationFile>true</GenerateDocumentationFile>
+        <NoWarn>$(NoWarn);1591</NoWarn>
+        <Version>1.0.0</Version>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <None Include="../../README.md" Pack="true" Visible="false" PackagePath="/" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <PackageReference Include="Serilog" Version="4.0.1" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
+            <_Parameter1>Serilog.FluentDestructuring.UnitTests</_Parameter1>
+        </AssemblyAttribute>
+    </ItemGroup>
+</Project>
