@@ -1,12 +1,12 @@
 # Serilog.FluentDestructuring
 
-This package makes it possible to manipulate how objects are logged to [Serilog](https://serilog.net) using Fluent API.
+This package makes it possible to manipulate how complex objects are logged to [Serilog](https://serilog.net) using Fluent API.
 
 ## Motivation
 
 The [Destructurama.Attributed](https://github.com/destructurama/attributed) package provides convenient ways to configure Serilog complex object logging by using attributes. 
-With these, you can easily ignore some properties, apply masking, and so on. But this attribute-based approach does introduce a dependency on Serilog in projects where such a dependency may be undesirable (a similar issue exists with Entity Framework Core and its attribute-based model configuring approach). 
-This package emerged out of the need to eliminate this dependency and provide another way for the developers to configure logging using a Fluent API.
+With these, you can easily ignore some properties, apply masking and so on. But this attribute-based approach does introduce a dependency on Serilog in projects where such a dependency may be undesirable (a similar issue exists with Entity Framework Core and its attribute-based model configuring approach). 
+This package emerged out of the need to eliminate this dependency and provide another way for the developers to configure complex objects logging using a Fluent API.
 
 ## Installation
 
@@ -33,23 +33,7 @@ public class ApplicationFluentDestructuringPolicy : FluentDestructuringPolicy
 {
     protected override void Configure(FluentDestructuringBuilder builder)
     {
-        // Add configuration for a specific entity right here.
-        builder.Entity<UserRegisterRequest>(e => 
-        {
-            e.Property(p => p.Email)
-                .Mask();
-            
-            e.Property(p => p.Password)
-                .Ignore();
-        });
-        
-        
-        // Apply predefined configuration for a specific entity.
-        builder.ApplyConfiguration(new UserLoginRequestDestructuringConfiguration());
-        
-        
-        // Apply all entity destructuring configurations found in a specified assembly.
-        builder.ApplyConfigurationsFromAssembly(Assembly.GetExecutingAssembly());
+        // Your configurations.
     }
 }
 ```
@@ -60,6 +44,62 @@ Modify logger configuration.
 var cfg = new LoggerConfiguration()
     .Destructure.WithFluentDestructuringPolicy<ApplicationFluentDestructuringPolicy>()
     ...
+```
+
+### Destructuring rules applying.
+
+Add configuration for specific entity type right here.
+
+```csharp
+public class ApplicationFluentDestructuringPolicy : FluentDestructuringPolicy
+{
+    protected override void Configure(FluentDestructuringBuilder builder)
+    {
+        builder.Entity<UserRegisterRequest>(e => 
+        {
+            e.Property(p => p.Email)
+                .Mask();
+            
+            e.Property(p => p.Password)
+                .Ignore();
+        });
+    }
+}
+```
+
+Apply predefined configuration for a specific entity.
+
+```csharp
+public class UserRegisterRequestDestructuringConfiguration : IEntityDestructuringConfiguration<UserRegisterRequest>
+{
+    public void Configure(EntityDestructuringBuilder<UserRegisterRequest> builder)
+    {
+        builder.Property(p => p.Email)
+            .Mask();
+            
+        builder.Property(p => p.Password)
+            .Ignore();
+    }
+}
+
+public class ApplicationFluentDestructuringPolicy : FluentDestructuringPolicy
+{
+    protected override void Configure(FluentDestructuringBuilder builder)
+    {
+        builder.ApplyConfiguration(new UserRegisterRequestDestructuringConfiguration());
+    }
+}
+```
+Apply all entity destructuring configurations found in a specified assembly.
+
+```csharp
+public class ApplicationFluentDestructuringPolicy : FluentDestructuringPolicy
+{
+    protected override void Configure(FluentDestructuringBuilder builder)
+    {
+        builder.ApplyConfigurationsFromAssembly(Assembly.GetExecutingAssembly());
+    }
+}
 ```
 
 ### 1. Changing a property name.
@@ -160,7 +200,7 @@ builder.Entity<UserRegisterRequest>(e =>
 });
 ```
 
-### 5. Conditional property destructuring applying.
+### 5. Conditional property destructuring.
 
 You can define the condition under which the destructuring rule will be applied.
 
@@ -219,9 +259,22 @@ builder.Entity<UserRegisterRequest>(e =>
 Or apply predefined configuration.
 
 ```csharp
+public class UserPassportRequestDestructuringConfiguration : IEntityDestructuringConfiguration<UserPassportRequest>
+{
+    public void Configure(EntityDestructuringBuilder<UserPassportRequest> builder)
+    {
+        builder.Property(a => a.Series)
+            .Mask();
+
+        builder.Property(a => a.Number)
+            .Ignore()
+            .ApplyWhenNull();
+    }
+}
+
 builder.Entity<UserRegisterRequest>(e => 
 {  
-    e.InnerEntity(o => o.Passport, new PassportDestructuringConfiguration())
+    e.InnerEntity(o => o.Passport, new UserPassportRequestDestructuringConfiguration())
         .WithAlias("user_passport")
         .ApplyWhen(e => !string.IsNullOrWhiteSpace(e.Email));
 });
@@ -234,7 +287,8 @@ builder.Entity<UserRegisterRequest>(e =>
 
 ```csharp
 var cfg = new LoggerConfiguration()
-    .Destructure.WithFluentDestructuringPolicy<ApplicationFluentDestructuringPolicy>(e => {
+    .Destructure.WithFluentDestructuringPolicy<ApplicationFluentDestructuringPolicy>(e => 
+    {
         e.IgnoreNullProperties = true;
         e.ExcludeTypeTag = true;
     })
