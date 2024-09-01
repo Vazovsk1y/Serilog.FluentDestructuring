@@ -20,7 +20,7 @@ public class ConditionalPropertyDestructuringApplyingBuilder<TEntity> : Addition
     /// <summary>
     /// Specifies a predicate to determine when the destructuring should be applied.
     /// </summary>
-    /// <param name="applyDestructuringPredicate">A predicate that evaluates to true when destructuring should be applied.</param>
+    /// <param name="applyDestructuringPredicate">Condition when destructuring should be applied.</param>
     /// <exception cref="ArgumentNullException">Thrown when the <paramref name="applyDestructuringPredicate"/> is null.</exception>
     public void ApplyWhen(Func<TEntity, bool> applyDestructuringPredicate)
     {
