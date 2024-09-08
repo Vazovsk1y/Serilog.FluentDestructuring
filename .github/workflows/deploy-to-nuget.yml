@@ -21,16 +21,14 @@ jobs:
 
       - name: Get package version.
         run: |
+          Import-Module ./scripts/GetPackageVersion.psm1
           Write-Host "Github ref: $Env:GITHUB_REF"
-          $version = .\scripts\GetPackageVersion.ps1 -RowContainingPackageVersion $Env:GITHUB_REF
+          $version = GetVersionFromGitHubRef -GitHubRef $Env:GITHUB_REF
+          
+          Write-Host "Extracted version: '$version'"
           
           if ($version -eq $null) {
             Write-Error "Package version not found."
-            exit 1
-          }
-          
-          if ($Env:GITHUB_REF -notlike "*$version") {
-            Write-Error "Invalid branch title format."
             exit 1
           }
           
