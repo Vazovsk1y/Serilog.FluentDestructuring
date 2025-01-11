@@ -1,7 +1,12 @@
-﻿name: Deploy to NuGet.
+﻿name: Deploy to NuGet and Release section.
 
 on:
-  create
+  push: 
+    tags:
+      - "v*"
+
+permissions:
+  contents: write # For release creation.
 
 env:
   BUILD_CONFIGURATION: Release
@@ -10,10 +15,8 @@ env:
   NUGET_SOURCE_URL: 'https://api.nuget.org/v3/index.json'
 
 jobs:
-  deploy_to_nuget:
-    
+  deploy:
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/heads/release/')
     
     steps:
       - name: Checkout.
@@ -51,3 +54,8 @@ jobs:
 
       - name: Push.
         run: dotnet nuget push ${{ env.PACKAGE_OUTPUT_DIRECTORY }}/*.nupkg -k ${{ secrets.NUGET_API_KEY }} -s ${{ env.NUGET_SOURCE_URL }}
+        
+      - name: Create release.
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
