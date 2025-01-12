@@ -82,4 +82,85 @@ public class FluentDestructuringPolicyTests
             .Properties.ToDictionary(e => e.Name, e => e.Value).Should()
             .NotContainKey(nameof(WithoutConfigurationInnerModel.NullableInt32));
     }
+
+    #region Issue 2
+    
+    // https://github.com/Vazovsk1y/Serilog.FluentDestructuring/issues/2
+
+    [Fact]
+    public void IEnumerable_Property_Should_Be_Logged_As_Sequence_Value_WHEN_No_Custom_Rule_Configured()
+    {
+        var obj = new FluentDestructuringPolicyModel
+        {
+            IEnumerable = Enumerable.Range(0, 3).Select(e => new InnerEntityPropertyModel { Id = Guid.NewGuid(), Property = $"property{e}" }),
+        };
+        
+        var evt = DelegateSink.Execute<TestFluentDestructuringPolicy>(obj);
+        var sv = (StructureValue)evt.Properties[DelegateSink.ParamName];
+        var properties = sv.Properties.ToDictionary(e => e.Name, e => e.Value);
+
+        properties[nameof(FluentDestructuringPolicyModel.IEnumerable)].Should().BeOfType<SequenceValue>();
+    }
+    
+    [Fact]
+    public void IEnumerable_Should_Be_Logged_As_Sequence_Value_WHEN_No_Custom_Rule_Configured()
+    {
+        var obj = Enumerable.Range(0, 3).Select(e => new InnerEntityPropertyModel() { Id = Guid.NewGuid(), Property = $"property{e}" });
+
+        var evt = DelegateSink.Execute<TestFluentDestructuringPolicy>(obj);
+        var value = evt.Properties[DelegateSink.ParamName];
+
+        value.Should().BeOfType<SequenceValue>();
+    }
+    
+    [Fact]
+    public void Dictionary_Property_Should_Be_Logged_As_Dictionary_Value_WHEN_No_Custom_Rule_Configured()
+    {
+        var obj = new FluentDestructuringPolicyModel()
+        {
+            Dictionary = new Dictionary<Guid, InnerEntityPropertyModel>
+            {
+                { Guid.NewGuid(), new InnerEntityPropertyModel { Id = Guid.NewGuid(), Property = "property1" } },
+                { Guid.NewGuid(), new InnerEntityPropertyModel { Id = Guid.NewGuid(), Property = "property2" } }
+            },
+        };
+    
+        var evt = DelegateSink.Execute<TestFluentDestructuringPolicy>(obj);
+        var sv = (StructureValue)evt.Properties[DelegateSink.ParamName];
+        var properties = sv.Properties.ToDictionary(e => e.Name, e => e.Value);
+
+        properties[nameof(FluentDestructuringPolicyModel.Dictionary)].Should().BeOfType<DictionaryValue>();
+    }
+
+    [Fact]
+    public void Dictionary_Should_Be_Logged_As_Dictionary_Value_WHEN_No_Custom_Rule_Configured()
+    {
+        var obj = new Dictionary<Guid, InnerEntityPropertyModel>
+        {
+            { Guid.NewGuid(), new InnerEntityPropertyModel { Id = Guid.NewGuid(), Property = "property1" } },
+            { Guid.NewGuid(), new InnerEntityPropertyModel { Id = Guid.NewGuid(), Property = "property2" } }
+        };
+    
+        var evt = DelegateSink.Execute<TestFluentDestructuringPolicy>(obj);
+        var value = evt.Properties[DelegateSink.ParamName];
+
+        value.Should().BeOfType<DictionaryValue>();
+    }
+
+    [Fact]
+    public void IEnumerable_Property_Should_Be_Logged_As_Configured_WHEN_That_Provided()
+    {
+        var obj = new FluentDestructuringPolicyModel
+        {
+            IEnumerableAsScalar = Enumerable.Range(0, 3).Select(e => new InnerEntityPropertyModel { Id = Guid.NewGuid(), Property = $"property{e}" }),
+        };
+        
+        var evt = DelegateSink.Execute<TestFluentDestructuringPolicy>(obj);
+        var sv = (StructureValue)evt.Properties[DelegateSink.ParamName];
+        var properties = sv.Properties.ToDictionary(e => e.Name, e => e.Value);
+
+        properties[nameof(FluentDestructuringPolicyModel.IEnumerableAsScalar)].Should().BeOfType<ScalarValue>();
+    }
+    
+    #endregion
 }

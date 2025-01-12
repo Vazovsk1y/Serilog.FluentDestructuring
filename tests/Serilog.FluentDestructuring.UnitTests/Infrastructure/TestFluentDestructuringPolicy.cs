@@ -91,6 +91,9 @@ internal sealed class TestFluentDestructuringPolicy : FluentDestructuringPolicy
         {
             e.Property(o => o.StringProperty)
                 .Mask();
+
+            e.Property(o => o.IEnumerableAsScalar)
+                .AsScalar();
         });
     }
 }
