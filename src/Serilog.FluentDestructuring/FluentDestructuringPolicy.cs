@@ -1,3 +1,4 @@
+using System.Collections;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq.Expressions;
 using System.Reflection;
@@ -15,7 +16,7 @@ namespace Serilog.FluentDestructuring;
 /// </summary>
 public abstract class FluentDestructuringPolicy : IDestructuringPolicy
 {
-    private readonly IReadOnlyDictionary<Type, EntityDestructuringConfiguration> _configurations;
+    private readonly IReadOnlyDictionary<Type, EntityDestructuringConfiguration> _typeToConfiguration;
     private readonly FluentDestructuringPolicyOptions _options;
     
     protected FluentDestructuringPolicy()
@@ -23,53 +24,51 @@ public abstract class FluentDestructuringPolicy : IDestructuringPolicy
         _options = new FluentDestructuringPolicyOptions();
         var builder = new FluentDestructuringBuilder();
         ConfigureCore(builder);
-        _configurations = builder.Build();
+        _typeToConfiguration = builder.Build();
     }
     
     public bool TryDestructure(object entity, ILogEventPropertyValueFactory propertyValueFactory, [NotNullWhen(true)] out LogEventPropertyValue? result)
     {
         ArgumentNullException.ThrowIfNull(entity);
+
+        if (entity is IEnumerable)
+        {
+            result = null;
+            return false;
+        }
         
         var entityType = entity.GetType();
-        if (!_configurations.TryGetValue(entityType, out var entityConfiguration))
-        {
-            result = CreateLogEventValueDefault(entity, entityType, propertyValueFactory);
-            return true;
-        }
-
-        result = CreateLogEventPropertyValue(entity, entityConfiguration, propertyValueFactory);
+        result = !_typeToConfiguration.TryGetValue(entityType, out var entityConfiguration) ? 
+            CreateDefaultStructureValue(entity, entityType, propertyValueFactory) 
+            : 
+            CreateLogEventPropertyValue(entity, entityType, entityConfiguration, propertyValueFactory);
+        
         return true;
     }
 
-    private StructureValue CreateLogEventValueDefault(
+    private StructureValue CreateDefaultStructureValue(
         object entity,
         Type entityType,
-        ILogEventPropertyValueFactory propertyValueFactory)
+        ILogEventPropertyValueFactory factory)
     {
-        var logEventProperties = new List<LogEventProperty>();
-
-        foreach (var propertyInfo in GetPropertiesRecursive(entityType))
-        {
-            var propertyValue = GetPropertyValue(propertyInfo, entity);
-            if (propertyValue is null && _options.IgnoreNullProperties)
-            {
-                continue;
-            }
-            
-            logEventProperties.Add(new LogEventProperty(propertyInfo.Name, propertyValueFactory.CreatePropertyValue(propertyValue, true)));
-        }
+        // NOTE: `StructureValue` ctor call on passed `IEnumerable<LogEventProperty>` parameter `ToArray` method, so I don't have to materialize twice calling `ToArray` or `ToList` here.
+        var logEventProperties = from propertyInfo in GetPropertiesRecursive(entityType)
+            let propertyValue = GetPropertyValue(propertyInfo, entity)
+            where propertyValue is not null || !_options.IgnoreNullProperties
+            select new LogEventProperty(propertyInfo.Name, factory.CreatePropertyValue(propertyValue, true));
 
         return new StructureValue(logEventProperties, _options.ExcludeTypeTag ? null : entityType.Name);
     }
     
     private LogEventPropertyValue CreateLogEventPropertyValue(
         object? entity,
-        EntityDestructuringConfiguration entityConfiguration,
-        ILogEventPropertyValueFactory propertyValueFactory)
+        Type entityType,
+        EntityDestructuringConfiguration configuration,
+        ILogEventPropertyValueFactory factory)
     {
-        if (entityConfiguration.EntityDestructor is not null)
+        if (configuration.EntityDestructor is not null)
         {
-            return entityConfiguration.EntityDestructor.CreateLogEventPropertyValue(entity, propertyValueFactory);
+            return configuration.EntityDestructor.CreateLogEventPropertyValue(entity, factory);
         }
         
         if (entity is null)
@@ -77,26 +76,26 @@ public abstract class FluentDestructuringPolicy : IDestructuringPolicy
             return ScalarValue.Null;
         }
         
-        var entityType = entity.GetType();
         var logEventProperties = new List<LogEventProperty>();
-
         foreach (var propertyInfo in GetPropertiesRecursive(entityType))
         {
             var propertyValue = GetPropertyValue(propertyInfo, entity);
+            
+            // NOTE: Global `IgnoreNullProperties` value will ignore custom conditional for destructuring rule applying.
             if (propertyValue is null && _options.IgnoreNullProperties)
             {
                 continue;
             }
             
-            if (entityConfiguration.PropertyDestructuringConfigurations.TryGetValue(propertyInfo, out var propertyConfig))
+            if (configuration.PropertyDestructuringConfigurations.TryGetValue(propertyInfo, out var propertyConfig))
             {
                 var logEventProperty = propertyConfig switch
                 {
-                    SimplePropertyDestructuringConfiguration simplePropertyConfig => HandleSimpleProperty(entity, propertyValue, propertyInfo, simplePropertyConfig, propertyValueFactory),
+                    SimplePropertyDestructuringConfiguration simplePropertyConfig => HandleSimpleProperty(entity, propertyValue, propertyInfo, simplePropertyConfig, factory),
                     InnerEntityDestructuringConfiguration innerEntityConfig => innerEntityConfig.ApplyDestructuringPredicate is not null && !innerEntityConfig.ApplyDestructuringPredicate.Invoke(entity) ?
-                        new LogEventProperty(propertyInfo.Name, propertyValueFactory.CreatePropertyValue(propertyValue, true))
+                        new LogEventProperty(propertyInfo.Name, factory.CreatePropertyValue(propertyValue, true))
                         :
-                        new LogEventProperty(innerEntityConfig.PropertyAlias, CreateLogEventPropertyValue(propertyValue, innerEntityConfig.EntityConfiguration, propertyValueFactory)),
+                        new LogEventProperty(innerEntityConfig.PropertyAlias, CreateLogEventPropertyValue(propertyValue, propertyInfo.PropertyType, innerEntityConfig.EntityConfiguration, factory)),
                     _ => throw new KeyNotFoundException(),
                 };
 
@@ -107,11 +106,61 @@ public abstract class FluentDestructuringPolicy : IDestructuringPolicy
             }
             else
             {
-                logEventProperties.Add(new LogEventProperty(propertyInfo.Name, propertyValueFactory.CreatePropertyValue(propertyValue, true)));
+                logEventProperties.Add(new LogEventProperty(propertyInfo.Name, factory.CreatePropertyValue(propertyValue, true)));
             }
         }
 
         return new StructureValue(logEventProperties, _options.ExcludeTypeTag ? null : entityType.Name);
+    }
+    
+    private static LogEventProperty? HandleSimpleProperty(
+        object instance,
+        object? propertyValue,
+        PropertyInfo propertyInfo,
+        SimplePropertyDestructuringConfiguration propertyConfig,
+        ILogEventPropertyValueFactory factory)
+    {
+        if (propertyConfig.ApplyDestructuringPredicate is not null && !propertyConfig.ApplyDestructuringPredicate.Invoke(instance))
+        {
+            return new LogEventProperty(propertyInfo.Name, factory.CreatePropertyValue(propertyValue, true));
+        }
+
+        var result = propertyConfig.PropertyDestructor.CreateLogEventProperty(propertyConfig.PropertyAlias, propertyValue, factory);
+        if (result is not null)
+        {
+            return result;
+        }
+
+        if (propertyConfig.PropertyDestructor is not IgnorePropertyDestructor)
+        {
+            result = new LogEventProperty(propertyConfig.PropertyAlias, factory.CreatePropertyValue(propertyValue, true));
+        }
+        
+        return result;
+    }
+
+    private static IEnumerable<PropertyInfo> GetPropertiesRecursive(Type type)
+    {
+        var history = new HashSet<string>();
+
+        while (true)
+        {
+            var properties = type.GetProperties(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)
+                .Where(p => p.GetMethod != null && p.CanRead && p.GetMethod.IsPublic && p.GetIndexParameters().Length == 0 && !history.Contains(p.Name));
+
+            foreach (var propertyInfo in properties)
+            {
+                history.Add(propertyInfo.Name);
+                yield return propertyInfo;
+            }
+
+            if (type.BaseType is null || type.BaseType == typeof(object))
+            {
+                break;
+            }
+            
+            type = type.BaseType;
+        }
     }
     
     private static object? GetPropertyValue(PropertyInfo propertyInfo, object instance)
@@ -141,61 +190,7 @@ public abstract class FluentDestructuringPolicy : IDestructuringPolicy
         }
     }
 
-    private static LogEventProperty? HandleSimpleProperty(
-        object instance,
-        object? propertyValue,
-        PropertyInfo propertyInfo,
-        SimplePropertyDestructuringConfiguration propertyConfig, 
-        ILogEventPropertyValueFactory propertyValueFactory)
-    {
-        if (propertyConfig.ApplyDestructuringPredicate is not null && !propertyConfig.ApplyDestructuringPredicate.Invoke(instance))
-        {
-            return new LogEventProperty(propertyInfo.Name, propertyValueFactory.CreatePropertyValue(propertyValue, true));
-        }
-
-        var result = propertyConfig.PropertyDestructor.CreateLogEventProperty(propertyConfig.PropertyAlias, propertyValue, propertyValueFactory);
-        if (result is not null)
-        {
-            return result;
-        }
-
-        if (propertyConfig.PropertyDestructor is not IgnorePropertyDestructor)
-        {
-            result = new LogEventProperty(propertyConfig.PropertyAlias, propertyValueFactory.CreatePropertyValue(propertyValue, true));
-        }
-        
-        return result;
-    }
-
-    private static IEnumerable<PropertyInfo> GetPropertiesRecursive(Type type)
-    {
-        var history = new HashSet<string>();
-
-        while (true)
-        {
-            var properties = type.GetProperties(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)
-                .Where(p => p.GetMethod != null && p.CanRead && p.GetMethod.IsPublic && p.GetIndexParameters().Length == 0 && !history.Contains(p.Name));
-
-            foreach (var propertyInfo in properties)
-            {
-                history.Add(propertyInfo.Name);
-                yield return propertyInfo;
-            }
-
-            if (type.BaseType is null || type.BaseType == typeof(object))
-            {
-                break;
-            }
-            
-            type = type.BaseType;
-        }
-    }
-
-    internal void ConfigureOptions(Action<FluentDestructuringPolicyOptions> configureOptions)
-    {
-        ArgumentNullException.ThrowIfNull(configureOptions);
-        configureOptions.Invoke(_options);
-    }
+    internal void ConfigureOptions(Action<FluentDestructuringPolicyOptions> configureOptions) => configureOptions.Invoke(_options);
 
     private void ConfigureCore(FluentDestructuringBuilder builder) => Configure(builder);
 
